@@ -1,0 +1,6 @@
+{
+  "name": "SafeNet AI",
+  "description": "India's #1 AI-powered fraud detection, caller analysis, network intelligence, and currency validation platform by CERT-In.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
