@@ -104,6 +104,34 @@ const GEMINI_MODELS = (
  */
 const GEMINI_BUDGET_MS = Number(process.env.GEMINI_BUDGET_MS || 20_000);
 
+/**
+ * Ceiling on a SINGLE attempt. The budget above is only consulted between
+ * attempts, so one request that hangs sails straight past it and takes the
+ * whole serverless function down with it — which is exactly what a Citizen
+ * Shield lookup did, hanging 60s for a 504 while a sibling query answered in
+ * nine. The SDK applies no timeout of its own, so it has to be imposed here.
+ */
+const GEMINI_ATTEMPT_MS = Number(process.env.GEMINI_ATTEMPT_MS || 12_000);
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`gemini attempt timed out after ${ms}ms`)),
+      ms
+    );
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 type Failure =
   | { kind: "model-busy" }                 // nobody can use this model right now
   | { kind: "model-gone" }                 // this key may never use this model
@@ -126,7 +154,12 @@ function classify(err: any): Failure {
   const status = Number(err?.status ?? err?.code ?? 0);
   const msg = String(err?.message ?? err).toLowerCase();
 
-  if (status === 503 || msg.includes("high demand") || msg.includes("overloaded")) {
+  if (
+    status === 503 ||
+    msg.includes("high demand") ||
+    msg.includes("overloaded") ||
+    msg.includes("timed out") // a stalled model, not a spent key
+  ) {
     return { kind: "model-busy" };
   }
   if (status === 404 || msg.includes("no longer available") || msg.includes("not found")) {
@@ -179,7 +212,10 @@ async function withGemini<T>(
       if (now() < (entry.modelBenchedUntil.get(model) ?? 0)) continue;
 
       try {
-        return await call(entry.client, model);
+        return await withTimeout(
+          call(entry.client, model),
+          Math.max(1_000, Math.min(GEMINI_ATTEMPT_MS, deadline - now()))
+        );
       } catch (error: any) {
         lastError = error;
         const failure = classify(error);
