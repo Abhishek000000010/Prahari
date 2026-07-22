@@ -666,4 +666,9 @@ async function bootstrap() {
   });
 }
 
-bootstrap();
+export default app;
+
+if (!process.env.VERCEL) {
+  bootstrap();
+}
+
