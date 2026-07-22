@@ -3,7 +3,10 @@ import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
-import { getSyntheticGraph, simulateDisruption } from "./server/jaal/graphEngine";
+// Extension is required: this module is ESM ("type": "module") and Vercel
+// compiles it without bundling, so a bare specifier throws ERR_MODULE_NOT_FOUND
+// at invocation time and the whole function 500s.
+import { getSyntheticGraph, simulateDisruption } from "./server/jaal/graphEngine.js";
 
 dotenv.config();
 

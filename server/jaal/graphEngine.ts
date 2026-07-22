@@ -1,4 +1,7 @@
-import {
+// "import type" so the whole statement is erased at compile time — these are
+// interfaces only, and leaving it as a value import made the serverless bundle
+// carry a runtime dependency on a module that holds no runtime code.
+import type {
   JaalNode,
   JaalEdge,
   JaalFraudRing,

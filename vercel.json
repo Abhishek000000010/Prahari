@@ -2,11 +2,15 @@
   "version": 2,
   "buildCommand": "vite build",
   "functions": {
-    "api/**/*.ts": {
+    "api/*.ts": {
       "includeFiles": "prahari/modules/netra/samples/**"
     }
   },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
