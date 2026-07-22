@@ -177,7 +177,7 @@ async function analyseWithNetra(
 // ==========================================
 // 1. API Endpoint: Scam Call Analyser
 // ==========================================
-app.post("/api/scam-analyser", async (req, res) => {
+app.post(["/api/scam-analyser", "/scam-analyser"], async (req, res) => {
   const { transcript, language } = req.body;
 
   if (!transcript || transcript.trim() === "") {
@@ -360,7 +360,7 @@ Transcript:
 // ==========================================
 // 2. API Endpoint: Currency Detector
 // ==========================================
-app.post("/api/currency-detector", async (req, res) => {
+app.post(["/api/currency-detector", "/currency-detector"], async (req, res) => {
   const { noteImageBase64, selectedNoteId } = req.body;
 
   // 0. PRIMARY: real NETRA computer-vision backend (Python / FastAPI).
@@ -477,7 +477,7 @@ Provide a detailed forensic verification breakdown in the exact structured JSON 
 // ==========================================
 // 3. API Endpoint: AI Security Assistant Chat
 // ==========================================
-app.post("/api/ai-assistant", async (req, res) => {
+app.post(["/api/ai-assistant", "/ai-assistant"], async (req, res) => {
   const { messages } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
@@ -546,7 +546,7 @@ To identify malicious URLs or phishing pages:
 // ==========================================
 // 4. API Endpoint: Citizen Fraud Search Verification
 // ==========================================
-app.post("/api/citizen-check", async (req, res) => {
+app.post(["/api/citizen-check", "/citizen-check"], async (req, res) => {
   const { query, type } = req.body;
 
   if (!query) {
@@ -632,12 +632,12 @@ Provide response in strict JSON:
 // ==========================================
 // 5. API Endpoint: JAAL Fraud Network Intelligence
 // ==========================================
-app.get("/api/jaal/graph", (_req, res) => {
+app.get(["/api/jaal/graph", "/jaal/graph"], (_req, res) => {
   const result = getSyntheticGraph();
   res.json(result);
 });
 
-app.post("/api/jaal/disrupt", (req, res) => {
+app.post(["/api/jaal/disrupt", "/jaal/disrupt"], (req, res) => {
   const { frozenNodeIds } = req.body || {};
   const result = simulateDisruption(Array.isArray(frozenNodeIds) ? frozenNodeIds : []);
   res.json(result);
