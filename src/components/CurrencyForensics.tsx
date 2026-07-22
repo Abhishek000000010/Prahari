@@ -65,7 +65,7 @@ export default function CurrencyForensics({ onAddAuditLog }: CurrencyForensicsPr
       onAddAuditLog(`Forensic scan completed for Serial No ${data.serialNo}. Verdict: ${data.isValid ? "Genuine" : "Counterfeit Warn"}`);
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(`Analysis failed: ${err?.message || "request error"}. Is the NETRA backend running on port 8000?`);
+      setErrorMsg(`Analysis failed: ${err?.message || "request error"}. The analysis service may still be starting up — try again in a few seconds.`);
       onAddAuditLog("Forensic scan error encountered.");
     } finally {
       setIsLoading(false);
@@ -105,7 +105,7 @@ export default function CurrencyForensics({ onAddAuditLog }: CurrencyForensicsPr
           onAddAuditLog(`Custom analysis finished. Serial Number: ${data.serialNo}`);
         } catch (err: any) {
           console.error(err);
-          setErrorMsg(`Upload analysis failed: ${err?.message || "request error"}. Is the NETRA backend running on port 8000?`);
+          setErrorMsg(`Upload analysis failed: ${err?.message || "request error"}. The analysis service may still be starting up — try again in a few seconds.`);
           onAddAuditLog("Custom upload inspection failed.");
         } finally {
           setIsLoading(false);

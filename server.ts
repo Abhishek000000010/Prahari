@@ -477,8 +477,8 @@ Provide a detailed forensic verification breakdown in the exact structured JSON 
   return res.status(503).json({
     error: "analysis_engine_unavailable",
     message:
-      "The NETRA analysis engine is not reachable, so no verdict can be produced. " +
-      `Start the Python backend (uvicorn on port 8000) and try again.`,
+      "The NETRA analysis engine did not return a verdict. " +
+      `It may still be waking up at ${NETRA_API_URL} — wait a few seconds and try again.`,
   });
 });
 

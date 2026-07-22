@@ -3,7 +3,8 @@
   "buildCommand": "vite build",
   "functions": {
     "api/*.ts": {
-      "includeFiles": "prahari/modules/netra/samples/**"
+      "includeFiles": "prahari/modules/netra/samples/**",
+      "maxDuration": 60
     }
   },
   "rewrites": [
