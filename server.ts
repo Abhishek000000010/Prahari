@@ -22,27 +22,157 @@ app.use(
 
 const PORT = 3000;
 
-// Initialize Gemini Client safely
-let ai: GoogleGenAI | null = null;
-const API_KEY = process.env.GEMINI_API_KEY;
+// ==========================================
+// Gemini API key pool
+// ==========================================
+// A single free-tier key runs dry part-way through a busy demo, and when it
+// does every AI panel silently drops to its canned fallback — which looks to a
+// viewer exactly like the feature was never real. So keys are pooled: the
+// first one with quota left answers, and an exhausted key is benched rather
+// than retried on every request.
+//
+// The keys must come from DIFFERENT Google accounts to be worth anything.
+// Keys minted inside one project share a single quota, so rotating between
+// them buys nothing at all.
+const GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_API_KEY_2,
+  process.env.GEMINI_API_KEY_3,
+  process.env.GEMINI_API_KEY_4,
+].filter(
+  (key): key is string =>
+    !!key && key.trim() !== "" && key !== "MY_GEMINI_API_KEY"
+);
 
-if (API_KEY && API_KEY !== "MY_GEMINI_API_KEY") {
+type PooledKey = {
+  client: GoogleGenAI;
+  label: string;
+  /** Epoch ms before which this key is skipped. Infinity = out for good. */
+  benchedUntil: number;
+};
+
+const geminiPool: PooledKey[] = [];
+
+GEMINI_KEYS.forEach((key, i) => {
   try {
-    ai = new GoogleGenAI({
-      apiKey: API_KEY,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
-      },
+    geminiPool.push({
+      client: new GoogleGenAI({
+        apiKey: key,
+        httpOptions: { headers: { "User-Agent": "aistudio-build" } },
+      }),
+      label: `key #${i + 1}`,
+      benchedUntil: 0,
     });
-    console.log("Gemini Client successfully initialized server-side.");
   } catch (error) {
-    console.error("Failed to initialize Gemini client:", error);
+    console.error(`Failed to initialise Gemini key #${i + 1}:`, error);
   }
-} else {
-  console.log("GEMINI_API_KEY is not configured or placeholder. Running with simulated fallback analytics.");
+});
+
+const geminiEnabled = geminiPool.length > 0;
+
+console.log(
+  geminiEnabled
+    ? `Gemini ready with ${geminiPool.length} key(s) in the pool.`
+    : "No GEMINI_API_KEY configured. Running with simulated fallback analytics."
+);
+
+// Models are tried left to right. This is not premature caution: gemini-3.5-flash
+// answered 503 "experiencing high demand" for every request while this was being
+// wired up, which sent all four AI panels to their canned fallbacks and made the
+// whole feature look staged. A busy model is not a broken key, so it gets its own
+// fallback chain. Override with GEMINI_MODELS="a,b,c".
+const GEMINI_MODELS = (
+  process.env.GEMINI_MODELS || "gemini-2.5-flash,gemini-3.5-flash,gemini-2.0-flash"
+)
+  .split(",")
+  .map((m) => m.trim())
+  .filter(Boolean);
+
+/** The model is busy for everyone — another key would hit the same wall. */
+function isModelUnavailable(err: any): boolean {
+  const status = Number(err?.status ?? err?.code ?? 0);
+  const msg = String(err?.message ?? err).toLowerCase();
+  return (
+    status === 503 ||
+    msg.includes("unavailable") ||
+    msg.includes("high demand") ||
+    msg.includes("overloaded") ||
+    msg.includes("not found")
+  );
 }
+
+// A rate-limit is temporary; a rejected key is not. Gemini's free tier caps
+// per minute as well as per day, so a 60s bench recovers the per-minute case
+// on its own while costing a key that is out for the day only one wasted
+// request a minute. An invalid key is benched for good — retrying it is pure
+// latency.
+function benchDuration(err: any): number | null {
+  const status = Number(err?.status ?? err?.code ?? 0);
+  const msg = String(err?.message ?? err).toLowerCase();
+
+  if (status === 429 || msg.includes("quota") || msg.includes("resource_exhausted")) {
+    return 60_000;
+  }
+  if (
+    status === 401 ||
+    status === 403 ||
+    msg.includes("api key not valid") ||
+    msg.includes("api_key_invalid") ||
+    msg.includes("permission denied")
+  ) {
+    return Infinity;
+  }
+  return null; // not the key's fault — every other key would fail identically
+}
+
+/**
+ * Runs a Gemini call across every model/key combination that is still viable:
+ * an exhausted key advances to the next key, a busy model to the next model.
+ * Throws once nothing is left, which leaves each endpoint's existing catch to
+ * serve its offline fallback — so a spent pool degrades exactly the way a
+ * missing key always did.
+ */
+async function withGemini<T>(
+  call: (client: GoogleGenAI, model: string) => Promise<T>
+): Promise<T> {
+  let lastError: any = new Error("No Gemini API key is configured");
+
+  for (const model of GEMINI_MODELS) {
+    for (const entry of geminiPool) {
+      if (Date.now() < entry.benchedUntil) continue;
+      try {
+        return await call(entry.client, model);
+      } catch (error: any) {
+        lastError = error;
+
+        if (isModelUnavailable(error)) {
+          console.warn(`Gemini model ${model} is busy; trying the next model.`);
+          break; // every key would hit the same busy model
+        }
+
+        const bench = benchDuration(error);
+        if (bench === null) throw error;
+        entry.benchedUntil = bench === Infinity ? Infinity : Date.now() + bench;
+        console.warn(
+          `Gemini ${entry.label} unavailable (${error?.message ?? error}); trying the next key.`
+        );
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+// Thin wrappers so the call sites below read the way they always did — the
+// model and key selection stays invisible to them.
+const gemini = {
+  generateContent: (params: any): Promise<any> =>
+    withGemini((client, model) => client.models.generateContent({ ...params, model })),
+  sendChat: (params: any, message: string): Promise<any> =>
+    withGemini((client, model) =>
+      client.chats.create({ ...params, model }).sendMessage({ message })
+    ),
+};
 
 // ==========================================
 // NETRA — Currency CV backend (Python / FastAPI) integration
@@ -193,7 +323,7 @@ app.post(["/api/scam-analyser", "/scam-analyser"], async (req, res) => {
   }
 
   // 1. If Gemini AI is active, run real AI analysis
-  if (ai) {
+  if (geminiEnabled) {
     try {
       const prompt = `You are an expert Cyber Security and Anti-Fraud Investigator at CERT-In (Indian Computer Emergency Response Team).
 Analyze the following transcript of a suspicious phone conversation (Language: ${language || "English"}).
@@ -202,8 +332,7 @@ Detect if it is a scam call (phishing, social engineering, impersonation, etc.),
 Transcript:
 "${transcript}"`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await gemini.generateContent({
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -383,7 +512,7 @@ app.post(["/api/currency-detector", "/currency-detector"], async (req, res) => {
   }
 
   // 1. If Gemini is available, we perform multimodal analysis
-  if (ai && noteImageBase64) {
+  if (geminiEnabled && noteImageBase64) {
     try {
       const cleanBase64 = noteImageBase64.replace(/^data:image\/\w+;base64,/, "");
       const imagePart = {
@@ -405,8 +534,7 @@ Perform security feature audits including:
 Provide a detailed forensic verification breakdown in the exact structured JSON response schema specified below. Return precision coordinates (as percentage points from top-left, 0-100) for bounding boxes of security landmarks.`
       };
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await gemini.generateContent({
         contents: { parts: [imagePart, prompt] },
         config: {
           responseMimeType: "application/json",
@@ -493,7 +621,7 @@ app.post(["/api/ai-assistant", "/ai-assistant"], async (req, res) => {
   }
 
   // 1. If Gemini AI is active, run real Chat conversation
-  if (ai) {
+  if (geminiEnabled) {
     try {
       // Structure the messages for Gemini
       const formattedHistory = messages.slice(0, -1).map((m: any) => ({
@@ -503,17 +631,14 @@ app.post(["/api/ai-assistant", "/ai-assistant"], async (req, res) => {
 
       const latestMessage = messages[messages.length - 1]?.text || "";
 
-      const chat = ai.chats.create({
-        model: "gemini-3.5-flash",
+      const response = await gemini.sendChat({
         config: {
           systemInstruction: `You are the CERT-In AI Cyber Security Assistant (SafeNet Specialist).
 Your purpose is to assist Indian citizens, police officers, bank representatives, and administrators with security guidelines, fraud investigation tactics, scam report protocols, and tech safety procedures (such as verifying UPI IDs, malicious APK analysis, fishing websites, and reporting under 1930 Cyber helpline).
 Keep your advice highly professional, clear, objective, and action-oriented. Maintain a helpful, calm, and sovereign tone. Mention official resources like cybercrime.gov.in and RBI guidelines when relevant.`,
         },
         history: formattedHistory,
-      });
-
-      const response = await chat.sendMessage({ message: latestMessage });
+      }, latestMessage);
       const text = response.text;
       if (text) {
         return res.json({ text });
@@ -591,10 +716,9 @@ app.post(["/api/citizen-check", "/citizen-check"], async (req, res) => {
   }
 
   // If no predefined match, but key is present, let's let Gemini do a general look (e.g. is link weird)
-  if (!isMatch && ai) {
+  if (!isMatch && geminiEnabled) {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await gemini.generateContent({
         contents: `You are a Cyber Security Domain Analyst at CERT-In.
 Evaluate the safety of this query: "${cleanQuery}" (Type: ${type}).
 Identify if this looks like a phishing URL, scam UPI handle, or typical caller ID format for fraud.
