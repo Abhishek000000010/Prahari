@@ -436,10 +436,22 @@ async function analyseWithNetra(
   form.append("image", new Blob([buf as any]), filename);
   form.append("district", "Demo District");
 
-  const resp = await fetch(`${NETRA_API_URL}/api/netra/scan`, {
-    method: "POST",
-    body: form as any,
-  });
+  // 8-second hard timeout — Render's free tier can take 30+ seconds to wake
+  // from sleep, which would stall the entire Vercel serverless function and
+  // produce a 500 before the Gemini fallback ever gets a chance to run.
+  const controller = new AbortController();
+  const netraTimer = setTimeout(() => controller.abort(), 8_000);
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${NETRA_API_URL}/api/netra/scan`, {
+      method: "POST",
+      body: form as any,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(netraTimer);
+  }
   if (!resp.ok) {
     console.error(`NETRA backend returned HTTP ${resp.status}`);
     return null;
