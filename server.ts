@@ -47,8 +47,15 @@ const GEMINI_KEYS = [
 type PooledKey = {
   client: GoogleGenAI;
   label: string;
-  /** Epoch ms before which this key is skipped. Infinity = out for good. */
-  benchedUntil: number;
+  /** Set when the KEY itself is rejected — skipped for every model. */
+  keyBenchedUntil: number;
+  /**
+   * Per-model bench. The free tier counts quota per key AND per model, and
+   * model availability differs per account, so "key #2 cannot use model X"
+   * must not cost us key #2 on model Y. Four keys across four models is
+   * sixteen independent buckets rather than four.
+   */
+  modelBenchedUntil: Map<string, number>;
 };
 
 const geminiPool: PooledKey[] = [];
@@ -61,7 +68,8 @@ GEMINI_KEYS.forEach((key, i) => {
         httpOptions: { headers: { "User-Agent": "aistudio-build" } },
       }),
       label: `key #${i + 1}`,
-      benchedUntil: 0,
+      keyBenchedUntil: 0,
+      modelBenchedUntil: new Map(),
     });
   } catch (error) {
     console.error(`Failed to initialise Gemini key #${i + 1}:`, error);
@@ -83,36 +91,45 @@ console.log(
 // fallback chain. Override with GEMINI_MODELS="a,b,c".
 const GEMINI_MODELS = (
   process.env.GEMINI_MODELS ||
-  "gemini-2.5-flash,gemini-flash-latest,gemini-3.5-flash,gemini-2.0-flash"
+  "gemini-flash-latest,gemini-flash-lite-latest,gemini-3-flash-preview,gemini-2.5-flash"
 )
   .split(",")
   .map((m) => m.trim())
   .filter(Boolean);
 
-/** The model is busy for everyone — another key would hit the same wall. */
-function isModelUnavailable(err: any): boolean {
+type Failure =
+  | { kind: "model-busy" }                 // nobody can use this model right now
+  | { kind: "model-gone" }                 // this key may never use this model
+  | { kind: "quota"; retryMs: number }     // this key+model is spent for a while
+  | { kind: "key-dead" }                   // this key is finished for everything
+  | { kind: "fatal" };                     // our bug — no other key would help
+
+/**
+ * Every one of these was observed against the live API while wiring this up,
+ * which is why they are handled separately rather than as one "it failed":
+ *
+ *  - 503 high demand on gemini-3.5-flash — intermittent, hits every key alike.
+ *  - 404 "no longer available to new users" — a newer Google account simply
+ *    cannot call some older models, so the same model works on one key in the
+ *    pool and not on another.
+ *  - 429 with limit: 20 per DAY per model — the free tier is far smaller than
+ *    it looks, and it is counted per key AND per model.
+ */
+function classify(err: any): Failure {
   const status = Number(err?.status ?? err?.code ?? 0);
   const msg = String(err?.message ?? err).toLowerCase();
-  return (
-    status === 503 ||
-    msg.includes("unavailable") ||
-    msg.includes("high demand") ||
-    msg.includes("overloaded") ||
-    msg.includes("not found")
-  );
-}
 
-// A rate-limit is temporary; a rejected key is not. Gemini's free tier caps
-// per minute as well as per day, so a 60s bench recovers the per-minute case
-// on its own while costing a key that is out for the day only one wasted
-// request a minute. An invalid key is benched for good — retrying it is pure
-// latency.
-function benchDuration(err: any): number | null {
-  const status = Number(err?.status ?? err?.code ?? 0);
-  const msg = String(err?.message ?? err).toLowerCase();
-
+  if (status === 503 || msg.includes("high demand") || msg.includes("overloaded")) {
+    return { kind: "model-busy" };
+  }
+  if (status === 404 || msg.includes("no longer available") || msg.includes("not found")) {
+    return { kind: "model-gone" };
+  }
   if (status === 429 || msg.includes("quota") || msg.includes("resource_exhausted")) {
-    return 60_000;
+    // Google tells us how long to wait; believe it, with a floor so a tight
+    // retryDelay cannot turn into a hot loop.
+    const suggested = /"retrydelay"\s*:\s*"(\d+)s"/.exec(msg)?.[1];
+    return { kind: "quota", retryMs: Math.max(Number(suggested ?? 0) * 1000, 30_000) };
   }
   if (
     status === 401 ||
@@ -121,9 +138,9 @@ function benchDuration(err: any): number | null {
     msg.includes("api_key_invalid") ||
     msg.includes("permission denied")
   ) {
-    return Infinity;
+    return { kind: "key-dead" };
   }
-  return null; // not the key's fault — every other key would fail identically
+  return { kind: "fatal" };
 }
 
 /**
@@ -137,26 +154,49 @@ async function withGemini<T>(
   call: (client: GoogleGenAI, model: string) => Promise<T>
 ): Promise<T> {
   let lastError: any = new Error("No Gemini API key is configured");
+  const now = () => Date.now();
 
   for (const model of GEMINI_MODELS) {
     for (const entry of geminiPool) {
-      if (Date.now() < entry.benchedUntil) continue;
+      if (now() < entry.keyBenchedUntil) continue;
+      if (now() < (entry.modelBenchedUntil.get(model) ?? 0)) continue;
+
       try {
         return await call(entry.client, model);
       } catch (error: any) {
         lastError = error;
+        const failure = classify(error);
 
-        if (isModelUnavailable(error)) {
-          console.warn(`Gemini model ${model} is busy; trying the next model.`);
-          break; // every key would hit the same busy model
+        switch (failure.kind) {
+          case "model-busy":
+            console.warn(`Gemini model ${model} is busy; trying the next model.`);
+            break; // leaves the key loop — every key hits the same busy model
+
+          case "model-gone":
+            // Permanent for this pairing only: another key on a different
+            // account may still be allowed to call this model.
+            entry.modelBenchedUntil.set(model, Infinity);
+            console.warn(`Gemini ${entry.label} cannot use ${model}; trying the next key.`);
+            continue;
+
+          case "quota":
+            entry.modelBenchedUntil.set(model, now() + failure.retryMs);
+            console.warn(
+              `Gemini ${entry.label} is out of quota on ${model} for ${Math.round(
+                failure.retryMs / 1000
+              )}s; trying the next key.`
+            );
+            continue;
+
+          case "key-dead":
+            entry.keyBenchedUntil = Infinity;
+            console.warn(`Gemini ${entry.label} was rejected outright; trying the next key.`);
+            continue;
+
+          default:
+            throw error; // a malformed request — no other key or model helps
         }
-
-        const bench = benchDuration(error);
-        if (bench === null) throw error;
-        entry.benchedUntil = bench === Infinity ? Infinity : Date.now() + bench;
-        console.warn(
-          `Gemini ${entry.label} unavailable (${error?.message ?? error}); trying the next key.`
-        );
+        break; // only reached by "model-busy"
       }
     }
   }
@@ -201,7 +241,14 @@ app.get(["/api/ai-health", "/ai-health"], async (_req, res) => {
 
   res.json({
     keysConfigured: geminiPool.length,
-    keysBenched: geminiPool.filter((k) => Date.now() < k.benchedUntil).length,
+    keysRejected: geminiPool.filter((k) => Date.now() < k.keyBenchedUntil).length,
+    // Which key/model pairings are currently spent — the fastest way to see
+    // whether the pool is genuinely exhausted or just one pairing is.
+    benched: geminiPool.flatMap((k) =>
+      [...k.modelBenchedUntil.entries()]
+        .filter(([, until]) => Date.now() < until)
+        .map(([model]) => `${k.label} / ${model}`)
+    ),
     models: GEMINI_MODELS,
     netraUrl: NETRA_API_URL,
     commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
