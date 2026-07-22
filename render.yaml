@@ -3,8 +3,19 @@ services:
     name: prahari-backend
     env: python
     rootDir: prahari
-    buildCommand: pip install -r requirements.txt
+    # The slim dependency set — see requirements-deploy.txt for why torch,
+    # transformers and easyocr are excluded from the hosted build.
+    buildCommand: pip install -r requirements-deploy.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # Both heavy models are absent from the deploy image; skip them explicitly
+      # so nothing tries to download ~600 MB of CLIP weights at startup.
+      - key: NETRA_DISABLE_CLIP
+        value: "1"
+      - key: NETRA_ENABLE_OCR
+        value: "0"
+      # Set in the Render dashboard, not here — it is a secret.
+      - key: NETRA_GEMINI_API_KEY
+        sync: false

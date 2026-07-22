@@ -3,7 +3,6 @@ import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
-import { createServer as createViteServer } from "vite";
 import { getSyntheticGraph, simulateDisruption } from "./server/jaal/graphEngine";
 
 dotenv.config();
@@ -654,6 +653,10 @@ app.post(["/api/jaal/disrupt", "/jaal/disrupt"], (req, res) => {
 // ==========================================
 async function bootstrap() {
   if (process.env.NODE_ENV !== "production") {
+    // Imported here, not at module scope: this file is also the Vercel
+    // serverless entrypoint, where bootstrap() never runs. A top-level import
+    // would still drag all of vite into the lambda bundle.
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

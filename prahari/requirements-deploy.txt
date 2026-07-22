@@ -1,0 +1,23 @@
+# PRAHARI backend — hosted deployment (Render free tier, 512 MB RAM).
+#
+# Deliberately WITHOUT torch / transformers / easyocr. Together those are ~2 GB
+# of wheels, and CLIP + EasyOCR need far more than 512 MB resident once they
+# load — the instance gets OOM-killed part-way through a scan, so every upload
+# came back as a 502 and the service restarted. Both are optional by design:
+# clip_gate falls back to the heuristic note gate, ocr.py falls back to a
+# synthesised serial, and the genuine/counterfeit verdict is computed locally
+# by OpenCV in either case. Set NETRA_GEMINI_API_KEY to get real serial and
+# denomination reads back through the cloud vision path (vision_api.py).
+#
+# Local development keeps the full stack — use requirements.txt for that.
+
+fastapi
+uvicorn
+python-dotenv
+pydantic
+python-multipart
+
+# Headless build: no libGL on a bare Python host, and it is a much smaller wheel.
+opencv-python-headless
+numpy
+pillow
