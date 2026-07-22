@@ -35,9 +35,19 @@ export function NetworkHeader({ threatLevel, disruptionSummary, onResetSimulatio
               <span className="text-xs font-mono font-semibold text-[var(--color-navy)] bg-[var(--color-navy-tint)] px-2.5 py-0.5 rounded-full border border-[var(--color-line)]">
                 JAAL Engine
               </span>
+              {/* Said plainly and up front. The graph is generated, and a
+                  viewer who works that out for themselves discounts the
+                  modules that genuinely are live. */}
+              <span className="text-[10px] font-mono font-semibold text-[var(--color-ink-2)] bg-[var(--color-surface)] px-2.5 py-0.5 rounded-full border border-[var(--color-line)] border-dashed">
+                SIMULATED DATASET
+              </span>
             </h2>
             <p className="text-xs text-[var(--color-ink-2)] font-mono">
-              Graph-Based Threat Intelligence & Criminal Syndicate Disruption
+              Graph-Based Threat Intelligence &amp; Criminal Syndicate Disruption
+            </p>
+            <p className="text-[11px] text-[var(--color-ink-3)] leading-relaxed max-w-xl">
+              Runs on a generated fraud network, not live records — it demonstrates the disruption
+              algorithm and scoring, which operate identically on real graph data.
             </p>
           </div>
         </div>

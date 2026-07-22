@@ -2,6 +2,23 @@ import React, { useState } from "react";
 import { SAMPLE_BANKNOTES } from "../data";
 import { CurrencyAnalysis } from "../types";
 import { Coins, Upload, Search, Activity, ShieldCheck, AlertTriangle, ImageOff } from "lucide-react";
+import { recordActivity } from "../activityLog";
+
+// Every completed scan is a real event the Command Centre can count, so the
+// dashboard reflects what this deployment actually did rather than an invented
+// national total.
+function logScan(data: any) {
+  recordActivity({
+    module: "netra",
+    title: data.isValid
+      ? "Banknote verified as genuine"
+      : data.isBanknote === false
+      ? "Upload rejected — not a banknote"
+      : "Counterfeit indicators detected",
+    detail: `Serial ${data.serialNo || "UNREADABLE"} • confidence ${data.confidence ?? "—"}%`,
+    severity: data.isValid ? "safe" : "critical",
+  });
+}
 
 interface CurrencyForensicsProps {
   onAddAuditLog: (msg: string) => void;
@@ -62,6 +79,7 @@ export default function CurrencyForensics({ onAddAuditLog }: CurrencyForensicsPr
       const data = await response.json();
       if (!isValidAnalysis(data)) throw new Error("Malformed analysis response");
       setAnalysisResult(data);
+      logScan(data);
       onAddAuditLog(`Forensic scan completed for Serial No ${data.serialNo}. Verdict: ${data.isValid ? "Genuine" : "Counterfeit Warn"}`);
     } catch (err: any) {
       console.error(err);
@@ -94,6 +112,7 @@ export default function CurrencyForensics({ onAddAuditLog }: CurrencyForensicsPr
           const data = await response.json();
           if (!isValidAnalysis(data)) throw new Error("Malformed analysis response");
           setAnalysisResult(data);
+          logScan(data);
           setSelectedNote({
             id: "custom_note",
             name: "Uploaded Custom Banknote",

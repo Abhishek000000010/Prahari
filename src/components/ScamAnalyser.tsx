@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ScamCallAnalysis } from "../types";
+import { recordActivity } from "../activityLog";
 import { Phone, AlertTriangle, Play, FileText, CheckCircle, HelpCircle, Activity, Mic, Upload } from "lucide-react";
 
 // Gemini takes the audio inline as base64, which inflates it by ~33%, and the
@@ -93,6 +94,19 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
       });
       const data = await response.json();
       setAnalysis(data);
+      recordActivity({
+        module: "scam",
+        title: data.scamType || "Call transcript analysed",
+        detail: `Risk ${data.riskScore}/100 • ${data.riskLevel}${audioName ? ` • from ${audioName}` : ""}`,
+        severity:
+          data.riskLevel === "CRITICAL"
+            ? "critical"
+            : data.riskLevel === "HIGH"
+            ? "high"
+            : data.riskLevel === "MEDIUM"
+            ? "medium"
+            : "safe",
+      });
       onAddAuditLog(`Call analysis finished. Threat level: ${data.riskLevel} (${data.riskScore}/100)`);
     } catch (err) {
       console.error(err);

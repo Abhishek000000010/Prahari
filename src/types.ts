@@ -29,12 +29,24 @@ export interface UserSession {
   isLoggedIn: boolean;
 }
 
+/**
+ * An entry in the SIMULATED threat ledger shown alongside the real one.
+ *
+ * It carries an offset rather than a timestamp string: the previous version
+ * stored "2 mins ago" as literal text, so it still read "2 mins ago" an hour
+ * later — the single most obvious tell on the dashboard. Elapsed time is now
+ * derived from when the page loaded.
+ *
+ * Specific account numbers, phone numbers and seized rupee amounts were also
+ * removed. Invented figures that look like real seizure records are the part a
+ * viewer is most likely to mistake for genuine evidence.
+ */
 export interface LiveAlert {
   id: string;
-  timestamp: string;
+  /** Minutes before page load that this sample event "happened". */
+  minutesAgo: number;
   type: string;
   source: string;
-  amount?: string;
   status: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   location: string;
 }

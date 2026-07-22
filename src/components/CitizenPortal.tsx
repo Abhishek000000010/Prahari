@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { AlertTriangle, CheckCircle, Search, ShieldCheck, Phone, HelpCircle, ArrowRight } from "lucide-react";
+import { recordActivity } from "../activityLog";
 
 interface SearchResult {
   isMatch: boolean;
@@ -34,6 +35,21 @@ export default function CitizenPortal({ onAddAuditLog }: CitizenPortalProps) {
       });
       const data = await response.json();
       setResult(data);
+      recordActivity({
+        module: "citizen",
+        title: data.isMatch
+          ? `Flagged ${searchType.toUpperCase()} — ${data.scamCategory}`
+          : `${searchType.toUpperCase()} cleared`,
+        detail: `${searchQuery} • ${data.riskLevel} risk`,
+        severity:
+          data.riskLevel === "CRITICAL"
+            ? "critical"
+            : data.riskLevel === "HIGH"
+            ? "high"
+            : data.riskLevel === "MEDIUM"
+            ? "medium"
+            : "safe",
+      });
       onAddAuditLog(`Public Portal result loaded: Risk ${data.riskLevel}`);
     } catch (err) {
       console.error(err);

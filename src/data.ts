@@ -43,56 +43,52 @@ export const SAMPLE_BANKNOTES = [
 
 export const LIVE_ALERTS: LiveAlert[] = [
   {
-    id: "ALT-8831",
-    timestamp: "Just Now",
-    type: "UPI Scam Mule Account",
-    source: "Google Pay @ybl",
-    amount: "₹1,25,000",
+    id: "SIM-01",
+    minutesAgo: 0,
+    type: "UPI mule-account pattern",
+    source: "Payment-handle cluster",
     status: "CRITICAL",
-    location: "Jamtara, Jharkhand"
+    location: "Jharkhand"
   },
   {
-    id: "ALT-8832",
-    timestamp: "2 mins ago",
-    type: "Digital Arrest Phishing Call",
-    source: "+91 91029 88392",
-    amount: "₹5,00,000 Attempted",
+    id: "SIM-02",
+    minutesAgo: 2,
+    type: "Digital-arrest impersonation call",
+    source: "Inbound voice",
     status: "CRITICAL",
     location: "Delhi NCR"
   },
   {
-    id: "ALT-8833",
-    timestamp: "5 mins ago",
-    type: "Fake Electricity Bill APK",
-    source: "Malicious SMS Link",
+    id: "SIM-03",
+    minutesAgo: 5,
+    type: "Fake electricity-bill APK",
+    source: "SMS link",
     status: "HIGH",
-    location: "Pune, Maharashtra"
+    location: "Maharashtra"
   },
   {
-    id: "ALT-8834",
-    timestamp: "8 mins ago",
-    type: "Mule Account Frozen",
-    source: "HDFC Bank (A/C **9928)",
-    amount: "₹8,45,000 Frozen",
+    id: "SIM-04",
+    minutesAgo: 8,
+    type: "Mule account flagged for hold",
+    source: "Partner bank feed",
     status: "MEDIUM",
-    location: "Mumbai, MH"
+    location: "Maharashtra"
   },
   {
-    id: "ALT-8835",
-    timestamp: "12 mins ago",
-    type: "SIM Swap Extortion Campaign",
-    source: "+91 88291 00293",
+    id: "SIM-05",
+    minutesAgo: 12,
+    type: "SIM-swap extortion campaign",
+    source: "Inbound voice",
     status: "HIGH",
-    location: "Mewat, Haryana"
+    location: "Haryana"
   },
   {
-    id: "ALT-8836",
-    timestamp: "15 mins ago",
-    type: "Part-time job WhatsApp Bait",
-    source: "Telegram Portal",
-    amount: "₹45,000",
+    id: "SIM-06",
+    minutesAgo: 15,
+    type: "Part-time job recruitment bait",
+    source: "Messaging platform",
     status: "MEDIUM",
-    location: "Bengaluru, KA"
+    location: "Karnataka"
   }
 ];
 
