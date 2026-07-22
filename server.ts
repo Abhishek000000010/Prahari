@@ -97,6 +97,13 @@ const GEMINI_MODELS = (
   .map((m) => m.trim())
   .filter(Boolean);
 
+/**
+ * How long the whole pool may spend before giving up and letting the caller's
+ * offline fallback answer. Kept well under the 60s serverless ceiling so a
+ * slow chain of failures degrades into a canned answer rather than a 504.
+ */
+const GEMINI_BUDGET_MS = Number(process.env.GEMINI_BUDGET_MS || 20_000);
+
 type Failure =
   | { kind: "model-busy" }                 // nobody can use this model right now
   | { kind: "model-gone" }                 // this key may never use this model
@@ -155,9 +162,19 @@ async function withGemini<T>(
 ): Promise<T> {
   let lastError: any = new Error("No Gemini API key is configured");
   const now = () => Date.now();
+  const deadline = now() + GEMINI_BUDGET_MS;
 
   for (const model of GEMINI_MODELS) {
     for (const entry of geminiPool) {
+      // Four keys across four models is sixteen attempts, and a bad run of
+      // slow failures would spend longer than the serverless function is
+      // allowed to live — the caller then gets a 504, which is strictly worse
+      // than the offline fallback it would otherwise have shown. Stop while
+      // there is still time to answer.
+      if (now() > deadline) {
+        console.warn("Gemini pool exceeded its time budget; using the offline fallback.");
+        throw lastError;
+      }
       if (now() < entry.keyBenchedUntil) continue;
       if (now() < (entry.modelBenchedUntil.get(model) ?? 0)) continue;
 
