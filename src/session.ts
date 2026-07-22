@@ -11,6 +11,33 @@ export const ANONYMOUS_SESSION: UserSession = {
 };
 
 /**
+ * A ready-made signed-in session for evaluators. Sign-in here is presentation
+ * state only — it grants no authority the server would not otherwise grant —
+ * so putting a reviewer through a six-step registration costs them their first
+ * impression and protects nothing.
+ */
+export const DEMO_SESSION: UserSession = {
+  id: "DEMO-0001",
+  name: "Demo Investigator",
+  role: "officer",
+  email: "demo.investigator@cert-in.gov.in",
+  isLoggedIn: true,
+};
+
+/**
+ * True when the URL carries ?demo (e.g. /network-intelligence?demo=1), which
+ * lets a deep link to any single screen open signed in rather than bouncing
+ * the visitor to a login form.
+ */
+export function isDemoRequest(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).has("demo");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Restores the session from storage so a page reload does not force a
  * re-login. This is presentation-state only — it does not grant any
  * authority the server would not otherwise grant.

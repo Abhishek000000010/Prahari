@@ -3,7 +3,14 @@ import { motion, AnimatePresence } from "motion/react";
 import { UserSession, ScreenType, IncidentReport, OfficerSignupRequest } from "./types";
 import { INITIAL_REPORTS } from "./data";
 import { useRoutedScreen } from "./router";
-import { loadSession, saveSession, clearSession, ANONYMOUS_SESSION } from "./session";
+import {
+  loadSession,
+  saveSession,
+  clearSession,
+  ANONYMOUS_SESSION,
+  DEMO_SESSION,
+  isDemoRequest,
+} from "./session";
 
 // Component Imports
 import CommandCentre from "./components/CommandCentre";
@@ -118,12 +125,26 @@ const ADVISORIES_DATA = [
 export default function App() {
   // Navigation State
   const [activeScreen, setActiveScreen] = useRoutedScreen();
-  const [session, setSession] = useState<UserSession>(loadSession);
+  // Resolved synchronously rather than in an effect: the protected-screen
+  // redirect below runs on the very first commit, so a session applied later
+  // would still bounce a ?demo deep link to the login screen before it landed.
+  const [session, setSession] = useState<UserSession>(() =>
+    isDemoRequest() ? DEMO_SESSION : loadSession()
+  );
 
   // Persist the session so a reload keeps the user signed in.
   useEffect(() => {
     saveSession(session);
   }, [session]);
+
+  // Strip ?demo once it has been honoured, so the address bar reads as a clean
+  // deep link and a copied URL is not permanently pinned to demo mode.
+  useEffect(() => {
+    if (!isDemoRequest()) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("demo");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  }, []);
 
   // Screens that require a signed-in user. Deep-linking to one while signed
   // out lands on the login page rather than an empty viewport.
@@ -357,6 +378,14 @@ export default function App() {
       email: regForm.employeeId ? `${regForm.name.toLowerCase().replace(" ", ".")}@govt.in` : "arjun.singh@cert-in.gov.in",
       isLoggedIn: true,
     });
+    setActiveScreen("dashboard");
+  };
+
+  // One click from the landing page into the product, for reviewers who should
+  // be judging the sensors rather than filling in a registration form.
+  const enterDemo = () => {
+    addAuditLog("Demo session opened — signed in as Demo Investigator (officer role).");
+    setSession(DEMO_SESSION);
     setActiveScreen("dashboard");
   };
 
@@ -603,9 +632,17 @@ export default function App() {
 
                 <div className="flex flex-wrap gap-3 pt-1">
                   <button
+                    id="landing-btn-demo"
+                    onClick={enterDemo}
+                    className="btn btn-primary"
+                  >
+                    <Shield className="w-4 h-4" strokeWidth={1.75} />
+                    <span>Enter demo — no sign-up</span>
+                  </button>
+                  <button
                     id="landing-btn-citizen"
                     onClick={() => setActiveScreen("citizen_portal")}
-                    className="btn btn-primary"
+                    className="btn btn-secondary"
                   >
                     <ShieldCheck className="w-4 h-4" strokeWidth={1.75} />
                     <span>Enter Citizen Shield</span>
@@ -1684,6 +1721,17 @@ export default function App() {
                   className="w-full py-2.5 bg-[var(--color-navy)] hover:bg-[var(--color-navy-hover)] text-white font-semibold rounded-[3px] text-xs transition-all cursor-pointer"
                 >
                   Sovereign Sign In
+                </button>
+
+                {/* A visitor who deep-linked into a protected screen was sent
+                    here; give them a way through rather than a dead end. */}
+                <button
+                  id="login-demo-btn"
+                  type="button"
+                  onClick={enterDemo}
+                  className="w-full mt-2 py-2.5 border border-[var(--color-line)] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:border-[var(--color-navy)] font-semibold rounded-[3px] text-xs transition-all cursor-pointer"
+                >
+                  Skip — enter demo as investigator
                 </button>
               </div>
             </form>

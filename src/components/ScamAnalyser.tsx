@@ -1,7 +1,12 @@
 import React, { useState } from "react";
 import { SAMPLE_TRANSCRIPTS } from "../data";
 import { ScamCallAnalysis } from "../types";
-import { Phone, AlertTriangle, Play, FileText, CheckCircle, HelpCircle, Activity } from "lucide-react";
+import { Phone, AlertTriangle, Play, FileText, CheckCircle, HelpCircle, Activity, Mic, Upload } from "lucide-react";
+
+// Gemini takes the audio inline as base64, which inflates it by ~33%, and the
+// server body cap is 50 MB. 15 MB of source audio is roughly 15 minutes of
+// speech-grade mp3 — longer than any call worth transcribing in a demo.
+const MAX_AUDIO_MB = 15;
 
 interface ScamAnalyserProps {
   onAddAuditLog: (msg: string) => void;
@@ -14,6 +19,9 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ScamCallAnalysis | null>(null);
   const [selectedHighlight, setSelectedHighlight] = useState<any | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [audioName, setAudioName] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handlePresetSelect = (preset: typeof SAMPLE_TRANSCRIPTS[0]) => {
     setSelectedPreset(preset);
@@ -21,6 +29,62 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
     setLanguage(preset.language);
     setAnalysis(null);
     setSelectedHighlight(null);
+  };
+
+  // Upload a call recording, transcribe it, and drop the text straight into the
+  // transcript box so the investigator can read and correct it before analysing
+  // — a wrong word in a transcript changes the verdict, so it stays editable
+  // rather than being fed to the analyser behind their back.
+  const handleRecordingUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked after an error
+    if (!file) return;
+
+    setUploadError(null);
+
+    if (file.size > MAX_AUDIO_MB * 1024 * 1024) {
+      setUploadError(`That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. Please upload audio under ${MAX_AUDIO_MB} MB.`);
+      return;
+    }
+
+    setAudioName(file.name);
+    setIsTranscribing(true);
+    setAnalysis(null);
+    setSelectedHighlight(null);
+    onAddAuditLog(`Uploaded call recording "${file.name}" for speech-to-text extraction.`);
+
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("could not read the file"));
+        reader.readAsDataURL(file);
+      });
+
+      const response = await fetch("/api/transcribe-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioBase64: dataUrl,
+          mimeType: file.type || "audio/mpeg",
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.transcript) {
+        throw new Error(data?.message || `transcription failed (${response.status})`);
+      }
+
+      setTranscriptText(data.transcript);
+      onAddAuditLog(`Transcript extracted from "${file.name}" (${data.transcript.length} chars). Ready to analyse.`);
+    } catch (err: any) {
+      console.error(err);
+      setAudioName(null);
+      setUploadError(err?.message || "The recording could not be transcribed.");
+      onAddAuditLog("Call recording transcription failed.");
+    } finally {
+      setIsTranscribing(false);
+    }
   };
 
   const runAnalysis = async () => {
@@ -58,8 +122,58 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
           </div>
 
           <p className="text-xs text-[var(--color-ink-2)] mb-4">
-            Paste an intercepted telephonic transcript or choose from typical high-impact Indian fraud presets below to extract critical risk indexes.
+            Upload a call recording to transcribe it automatically, paste an intercepted transcript, or pick one of the Indian fraud presets below.
           </p>
+
+          {/* Call recording upload -> speech-to-text */}
+          <div className="mb-4" id="recording-upload-panel">
+            <label
+              htmlFor="call-recording-input"
+              className={`flex flex-col items-center justify-center gap-1.5 w-full p-4 border border-dashed rounded-[3px] transition-all ${
+                isTranscribing
+                  ? "border-[var(--color-line)] cursor-wait"
+                  : "border-[var(--color-line)] hover:border-[var(--color-navy)] cursor-pointer"
+              }`}
+            >
+              {isTranscribing ? (
+                <>
+                  <Activity className="w-5 h-5 text-[var(--color-navy)] animate-spin" />
+                  <span className="text-xs font-medium text-[var(--color-ink)]">Transcribing recording…</span>
+                  <span className="text-[10px] text-[var(--color-ink-3)]">This can take up to a minute for a long call.</span>
+                </>
+              ) : (
+                <>
+                  <Mic className="w-5 h-5 text-[var(--color-navy)]" />
+                  <span className="text-xs font-medium text-[var(--color-ink)]">Upload Call Recording</span>
+                  <span className="text-[10px] text-[var(--color-ink-3)]">
+                    MP3, WAV, M4A, OGG up to {MAX_AUDIO_MB}MB — speech is converted to a transcript
+                  </span>
+                </>
+              )}
+            </label>
+            <input
+              id="call-recording-input"
+              type="file"
+              accept="audio/*"
+              disabled={isTranscribing}
+              onChange={handleRecordingUpload}
+              className="hidden"
+            />
+
+            {audioName && !isTranscribing && !uploadError && (
+              <div className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--color-ink-2)]">
+                <Upload className="w-3 h-3 text-[var(--color-safe)]" />
+                <span>Transcribed from <span className="font-medium text-[var(--color-ink)]">{audioName}</span> — review the text below, then analyse.</span>
+              </div>
+            )}
+
+            {uploadError && (
+              <div className="mt-2 flex items-start gap-1.5 text-[10px] text-[var(--color-critical)]">
+                <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                <span>{uploadError}</span>
+              </div>
+            )}
+          </div>
 
           {/* Preset Buttons */}
           <div className="space-y-2.5 mb-4" id="presets-panel">

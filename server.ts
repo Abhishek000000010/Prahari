@@ -449,6 +449,64 @@ async function analyseWithNetra(
 }
 
 // ==========================================
+// 1a. API Endpoint: Call recording -> transcript
+// ==========================================
+// Investigators hold recordings, not transcripts. Asking them to type out a
+// twelve-minute fraud call before the analyser will look at it is the step
+// where a real user gives up, so the audio is transcribed here and handed to
+// the same analyser the pasted-text path uses.
+//
+// No offline fallback on purpose: inventing a transcript would put words in a
+// suspect's mouth and feed them into a fraud verdict. If transcription cannot
+// run, it says so.
+app.post(["/api/transcribe-call", "/transcribe-call"], async (req, res) => {
+  const { audioBase64, mimeType } = req.body || {};
+
+  if (!audioBase64) {
+    return res.status(400).json({ error: "audioBase64 is required" });
+  }
+  if (!geminiEnabled) {
+    return res.status(503).json({
+      error: "transcription_unavailable",
+      message: "Speech-to-text needs a Gemini API key, which is not configured on this deployment.",
+    });
+  }
+
+  const data = String(audioBase64).replace(/^data:[^;]+;base64,/, "");
+
+  try {
+    const response = await gemini.generateContent({
+      contents: {
+        parts: [
+          { inlineData: { mimeType: mimeType || "audio/mpeg", data } },
+          {
+            text: `Transcribe this phone call recording verbatim.
+
+Rules:
+- Write exactly what is said, including Hindi, Hinglish or regional speech, in the script it is spoken in (Roman script is fine for Hinglish).
+- Keep filler words, repetitions and numbers (account numbers, OTPs, amounts) exactly as spoken.
+- Label alternating speakers as "Caller:" and "Recipient:" when you can tell them apart.
+- Do not summarise, translate, censor or add commentary. Output the transcript text only.`,
+          },
+        ],
+      },
+    });
+
+    const transcript = String(response?.text ?? "").trim();
+    if (!transcript) throw new Error("model returned an empty transcript");
+
+    res.json({ transcript });
+  } catch (err: any) {
+    console.error("Call transcription failed:", err?.message ?? err);
+    res.status(503).json({
+      error: "transcription_failed",
+      message:
+        "The recording could not be transcribed. Check the file is audio and under ~15 MB, then try again.",
+    });
+  }
+});
+
+// ==========================================
 // 1. API Endpoint: Scam Call Analyser
 // ==========================================
 app.post(["/api/scam-analyser", "/scam-analyser"], async (req, res) => {
