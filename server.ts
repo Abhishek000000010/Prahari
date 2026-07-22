@@ -82,7 +82,8 @@ console.log(
 // whole feature look staged. A busy model is not a broken key, so it gets its own
 // fallback chain. Override with GEMINI_MODELS="a,b,c".
 const GEMINI_MODELS = (
-  process.env.GEMINI_MODELS || "gemini-2.5-flash,gemini-3.5-flash,gemini-2.0-flash"
+  process.env.GEMINI_MODELS ||
+  "gemini-2.5-flash,gemini-flash-latest,gemini-3.5-flash,gemini-2.0-flash"
 )
   .split(",")
   .map((m) => m.trim())
@@ -173,6 +174,41 @@ const gemini = {
       client.chats.create({ ...params, model }).sendMessage({ message })
     ),
 };
+
+// ==========================================
+// 0. Diagnostics: is the AI actually live?
+// ==========================================
+// Every AI endpoint swallows its failure and serves a canned answer, which
+// means a broken key, a missing env var and a busy model all look identical
+// from the browser. This endpoint answers the only question that matters --
+// "is Gemini really being reached right now, and if not, why" -- by making one
+// real call and reporting what came back. Key VALUES are never returned, only
+// how many were loaded.
+app.get(["/api/ai-health", "/ai-health"], async (_req, res) => {
+  const started = Date.now();
+  let probe: any = { ok: false, error: "no key configured" };
+
+  if (geminiEnabled) {
+    try {
+      const r = await gemini.generateContent({
+        contents: "Reply with the single word: OK",
+      });
+      probe = { ok: true, replied: String(r?.text ?? "").trim().slice(0, 20) };
+    } catch (err: any) {
+      probe = { ok: false, error: String(err?.message ?? err).slice(0, 300) };
+    }
+  }
+
+  res.json({
+    keysConfigured: geminiPool.length,
+    keysBenched: geminiPool.filter((k) => Date.now() < k.benchedUntil).length,
+    models: GEMINI_MODELS,
+    netraUrl: NETRA_API_URL,
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+    probe,
+    tookMs: Date.now() - started,
+  });
+});
 
 // ==========================================
 // NETRA — Currency CV backend (Python / FastAPI) integration
