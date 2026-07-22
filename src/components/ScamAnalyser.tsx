@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { SAMPLE_TRANSCRIPTS } from "../data";
 import { ScamCallAnalysis } from "../types";
 import { Phone, AlertTriangle, Play, FileText, CheckCircle, HelpCircle, Activity, Mic, Upload } from "lucide-react";
 
@@ -13,8 +12,8 @@ interface ScamAnalyserProps {
 }
 
 export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
-  const [selectedPreset, setSelectedPreset] = useState(SAMPLE_TRANSCRIPTS[0]);
-  const [transcriptText, setTranscriptText] = useState(SAMPLE_TRANSCRIPTS[0].text);
+  const [transcriptText, setTranscriptText] = useState("");
+  const [suspectedType, setSuspectedType] = useState("");
   const [language, setLanguage] = useState("Hindi / Hinglish");
   const [isLoading, setIsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ScamCallAnalysis | null>(null);
@@ -22,14 +21,6 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [audioName, setAudioName] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-
-  const handlePresetSelect = (preset: typeof SAMPLE_TRANSCRIPTS[0]) => {
-    setSelectedPreset(preset);
-    setTranscriptText(preset.text);
-    setLanguage(preset.language);
-    setAnalysis(null);
-    setSelectedHighlight(null);
-  };
 
   // Upload a call recording, transcribe it, and drop the text straight into the
   // transcript box so the investigator can read and correct it before analysing
@@ -98,7 +89,7 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
       const response = await fetch("/api/scam-analyser", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: transcriptText, language }),
+        body: JSON.stringify({ transcript: transcriptText, language, suspectedType }),
       });
       const data = await response.json();
       setAnalysis(data);
@@ -122,7 +113,7 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
           </div>
 
           <p className="text-xs text-[var(--color-ink-2)] mb-4">
-            Upload a call recording to transcribe it automatically, paste an intercepted transcript, or pick one of the Indian fraud presets below.
+            Upload a call recording to transcribe it automatically, or paste an intercepted transcript below.
           </p>
 
           {/* Call recording upload -> speech-to-text */}
@@ -175,27 +166,6 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
             )}
           </div>
 
-          {/* Preset Buttons */}
-          <div className="space-y-2.5 mb-4" id="presets-panel">
-            {SAMPLE_TRANSCRIPTS.map((preset) => (
-              <button
-                key={preset.id}
-                id={`preset-btn-${preset.id}`}
-                onClick={() => handlePresetSelect(preset)}
-                className={`w-full text-left p-2.5 rounded-[3px] border text-xs transition-all ${
-                  selectedPreset.id === preset.id
-                    ? "bg-[var(--color-surface-2)] border-[var(--color-line)] text-[var(--color-ink)]"
-                    : "bg-[var(--color-paper)] border-[var(--color-line)] hover:border-[var(--color-line)] text-[var(--color-ink-2)]"
-                }`}
-              >
-                <div className="flex items-center justify-between font-medium">
-                  <span>{preset.title}</span>
-                  <span className="text-[9px] text-[var(--color-ink-3)]">{preset.language}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-
           {/* Transcript Form */}
           <div className="space-y-3" id="transcript-form">
             <div>
@@ -211,6 +181,23 @@ export default function ScamAnalyser({ onAddAuditLog }: ScamAnalyserProps) {
                 <option>Bengali</option>
                 <option>Tamil / Telugu</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono text-[var(--color-ink-2)] uppercase mb-1">
+                Suspected Scam Type <span className="text-[var(--color-ink-3)] normal-case">(optional)</span>
+              </label>
+              <input
+                id="suspected-type-input"
+                type="text"
+                value={suspectedType}
+                onChange={(e) => setSuspectedType(e.target.value)}
+                placeholder="e.g. digital arrest, KYC block, loan app harassment…"
+                className="w-full bg-[var(--color-paper)] border border-[var(--color-line)] rounded-[3px] p-2 text-xs text-[var(--color-ink)] outline-none focus:border-[var(--color-line)]"
+              />
+              <p className="text-[10px] text-[var(--color-ink-3)] mt-1 leading-relaxed">
+                Treated as an investigator's hypothesis — the analysis confirms or corrects it rather than accepting it.
+              </p>
             </div>
 
             <div>

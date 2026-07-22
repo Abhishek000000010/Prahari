@@ -510,11 +510,17 @@ Rules:
 // 1. API Endpoint: Scam Call Analyser
 // ==========================================
 app.post(["/api/scam-analyser", "/scam-analyser"], async (req, res) => {
-  const { transcript, language } = req.body;
+  const { transcript, language, suspectedType } = req.body;
 
   if (!transcript || transcript.trim() === "") {
     return res.status(400).json({ error: "Transcript is required" });
   }
+
+  // The investigator's own guess at the scam type. Passed as a hypothesis to
+  // test, never as the answer — an analyser that simply agrees with whatever
+  // was typed into the box is not analysing anything, and a wrong guess would
+  // steer the verdict instead of being caught by it.
+  const hypothesis = String(suspectedType || "").trim().slice(0, 120);
 
   // 1. If Gemini AI is active, run real AI analysis
   if (geminiEnabled) {
@@ -522,7 +528,12 @@ app.post(["/api/scam-analyser", "/scam-analyser"], async (req, res) => {
       const prompt = `You are an expert Cyber Security and Anti-Fraud Investigator at CERT-In (Indian Computer Emergency Response Team).
 Analyze the following transcript of a suspicious phone conversation (Language: ${language || "English"}).
 Detect if it is a scam call (phishing, social engineering, impersonation, etc.), assess risk level, highlight specific deceptive sentences/tactics, and provide actionable advice.
-
+${
+  hypothesis
+    ? `\nThe investigator suspects this may be: "${hypothesis}".
+Treat that only as a hypothesis. Confirm it if the transcript supports it, and contradict it plainly if it does not — say so in mismatchReason-style wording inside your scamType and highlights. Do not adopt their wording unless the evidence fits.\n`
+    : ""
+}
 Transcript:
 "${transcript}"`;
 
