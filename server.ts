@@ -50,7 +50,7 @@ if (API_KEY && API_KEY !== "MY_GEMINI_API_KEY") {
 // and maps the returned PrahariEvent into the CurrencyAnalysis shape the React
 // frontend already expects. Start the backend with:
 //     cd prahari && .venv/Scripts/uvicorn app.main:app --port 8000
-const NETRA_API_URL = process.env.NETRA_API_URL || "http://127.0.0.1:8000";
+const NETRA_API_URL = process.env.NETRA_API_URL || "https://prahari-backend-k239.onrender.com";
 
 // Frontend sample-note IDs -> NETRA's on-disk sample images. Passing the real
 // filename lets NETRA's demo hint seed the canonical serial numbers.
@@ -153,8 +153,14 @@ async function analyseWithNetra(
     buf = Buffer.from(clean, "base64");
   } else if (selectedNoteId && NETRA_SAMPLE_FILES[selectedNoteId]) {
     filename = NETRA_SAMPLE_FILES[selectedNoteId];
-    const p = path.join(process.cwd(), "prahari", "modules", "netra", "samples", filename);
-    buf = fs.readFileSync(p);
+    try {
+      const p = path.join(process.cwd(), "prahari", "modules", "netra", "samples", filename);
+      if (fs.existsSync(p)) {
+        buf = fs.readFileSync(p);
+      }
+    } catch (e) {
+      console.warn("Could not read sample file from disk:", e);
+    }
   }
   if (!buf) return null;
 
