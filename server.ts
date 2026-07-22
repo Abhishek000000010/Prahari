@@ -449,9 +449,14 @@ async function analyseWithNetra(
       body: form as any,
       signal: controller.signal,
     });
-  } finally {
     clearTimeout(netraTimer);
+  } catch (err: any) {
+    clearTimeout(netraTimer);
+    const reason = err?.name === "AbortError" ? "timed out after 8s" : String(err?.message ?? err);
+    console.warn(`NETRA fetch failed (${reason}); falling back to Gemini.`);
+    return null;
   }
+
   if (!resp.ok) {
     console.error(`NETRA backend returned HTTP ${resp.status}`);
     return null;
